@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Upload Configuration
+    USER_GLOBAL_UPLOAD_MAX_CONCURRENT: int = 3
+    ROUTE_UPLOAD_MAX_CONCURRENT: int = 2
+
     # OpenAI Configuration
     OPENAI_API_KEY: str | None = None
 

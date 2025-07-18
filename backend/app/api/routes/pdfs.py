@@ -10,7 +10,8 @@ from fastapi import (
     Form,
 )
 from sqlmodel import Session, select
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, SessionDep, check_upload_concurrency
+from app.core.config import settings
 from app.models import (
     PDFDocument,
     PDFDocumentCreate,
@@ -20,6 +21,7 @@ from app.models import (
 )
 from app.services.pdf_service import pdf_service
 from app.utils import validate_pdf_integrity
+from app.util.redis_client import RedisSlot
 
 router = APIRouter()
 
@@ -33,6 +35,7 @@ def create_pdf_document(
     description: str = Form(None),
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks,
+    concurrency_slot: RedisSlot = Depends(check_upload_concurrency(settings.ROUTE_UPLOAD_MAX_CONCURRENT)),
 ) -> PDFDocumentPublic:
     """
     Create new PDF document.
