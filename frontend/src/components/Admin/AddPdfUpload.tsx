@@ -1,16 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { type SubmitHandler, useForm } from "react-hook-form"
+import { useQueryClient } from "@tanstack/react-query"
 
-import type { ApiError } from "@/client/core/ApiError"
-import useCustomToast from "@/hooks/useCustomToast"
-import { handleError } from "@/utils"
 import {
   Button,
   DialogActionTrigger,
   DialogTitle,
-  Input,
   Text,
-  VStack,
 } from "@chakra-ui/react"
 import { useState } from "react"
 import { FaUpload } from "react-icons/fa"
@@ -22,114 +16,49 @@ import {
   DialogRoot,
   DialogTrigger,
 } from "../ui/dialog"
-import { Field } from "../ui/field"
-import { OpenAPI } from '@/client/core/OpenAPI';
-
-interface PdfUploadForm {
-  title: string
-  description: string
-  file: File | null
-}
-
-// PDF Upload Service
-class PDFUploadService {
-  static async uploadPDF(formData: FormData) {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      throw new Error("No authentication token found");
-    }
-
-    // For file uploads, we need to use fetch directly since FormData requires special handling
-    const response = await fetch(`${OpenAPI.BASE}/api/v1/pdfs/`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Upload failed");
-    }
-
-    return await response.json();
-  }
-}
+import UploadBox from "../Common/UploadBox"
+import { useUploadStore } from "../../store/useUploadStore"
 
 const AddPdfUpload = () => {
   const [isOpen, setIsOpen] = useState(false)
-  const { showSuccessToast, showErrorToast } = useCustomToast()
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isValid, isSubmitting },
-    setValue,
-    watch,
-  } = useForm<PdfUploadForm>({
-    mode: "onBlur",
-    criteriaMode: "all",
-    defaultValues: {
-      title: "",
-      description: "",
-      file: null,
-    },
-  })
-
-  const selectedFile = watch("file")
-
+  const { addFiles } = useUploadStore()
   const queryClient = useQueryClient()
 
-  const mutation = useMutation({
-    mutationFn: async (data: PdfUploadForm) => {
-      if (!data.file) {
-        throw new Error("No file selected")
-      }
-
-      const formData = new FormData()
-      formData.append("title", data.title)
-      if (data.description) {
-        formData.append("description", data.description)
-      }
-      formData.append("file", data.file)
-
-      return await PDFUploadService.uploadPDF(formData);
-    },
-    onSuccess: () => {
-      showSuccessToast("PDF uploaded successfully.")
-      reset()
-      setIsOpen(false)
-      // Invalidate PDFs query to refresh the list
-      queryClient.invalidateQueries({ queryKey: ["pdfs"] })
-    },
-    onError: (err: ApiError) => {
-      handleError(err)
-    },
-  })
-
-  const onSubmit: SubmitHandler<PdfUploadForm> = (data) => {
-    mutation.mutate(data)
-  }
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] || null
-    
-    if (file) {
-      // Check file size limit (10MB)
-      const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
+  const handleFilesUpload = (files: File[]) => {
+    if (files.length > 0) {
+      // All files are added to the queue, including invalid files
+      files.forEach(file => {
+        const title = file.name.replace(/\.(pdf|PDF)$/, '') || file.name // Remove .pdf extension if present, otherwise use full filename
+        
+        // Check if the file is valid
+        const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
+        let errorMessage = ''
+        
+        if (file.size > MAX_FILE_SIZE) {
+          errorMessage = `File size (${(file.size / (1024*1024)).toFixed(2)} MB) exceeds the maximum allowed size of 10 MB`
+        } else if (file.type !== 'application/pdf') {
+          errorMessage = `File type "${file.type || 'unknown'}" is not supported. Only PDF files are allowed`
+        } else if (file.size === 0) {
+          errorMessage = 'File appears to be empty'
+        }
+        // Note: PDF integrity validation is now handled entirely by the server
+        // to avoid duplicate error messages
+        
+        if (errorMessage) {
+          // Create a file entry with error status
+          addFiles([file], title, undefined, errorMessage)
+        } else {
+          // Valid files are added normally, server will perform integrity check
+          addFiles([file], title)
+        }
+      })
       
-      if (file.size > MAX_FILE_SIZE) {
-        setValue("file", null)
-        // Clear the file input
-        event.target.value = ""
-        // Show error toast
-        showErrorToast(`File size (${(file.size / (1024*1024)).toFixed(2)} MB) exceeds the maximum allowed size of 10 MB.`)
-        return
-      }
+      // Close dialog
+      setIsOpen(false)
+      
+      // Refresh PDFs query
+      queryClient.invalidateQueries({ queryKey: ["pdfs"] })
     }
-    
-    setValue("file", file)
   }
 
   return (
@@ -142,101 +71,42 @@ const AddPdfUpload = () => {
       <DialogTrigger asChild>
         <Button value="add-pdf" my={4}>
           <FaUpload fontSize="16px" />
-          Upload PDF
+          Upload PDFs
         </Button>
       </DialogTrigger>
       <DialogContent>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogHeader>
-            <DialogTitle>Upload PDF Document</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <Text mb={4}>
-              Upload a PDF document to be used by the spiritual chatbot. The document will be processed and made available for group users.
-            </Text>
-            <VStack gap={4}>
-              <Field
-                required
-                invalid={!!errors.title}
-                errorText={errors.title?.message}
-                label="Document Title"
-              >
-                <Input
-                  id="title"
-                  {...register("title", {
-                    required: "Document title is required",
-                    minLength: {
-                      value: 3,
-                      message: "Title must be at least 3 characters",
-                    },
-                  })}
-                  placeholder="e.g., Bible - New Testament"
-                  type="text"
-                />
-              </Field>
-
-              <Field
-                invalid={!!errors.description}
-                errorText={errors.description?.message}
-                label="Description"
-              >
-                <Input
-                  id="description"
-                  {...register("description", {
-                    minLength: {
-                      value: 10,
-                      message: "Description must be at least 10 characters",
-                    },
-                  })}
-                  placeholder="Brief description of the document content"
-                  type="text"
-                />
-              </Field>
-
-              <Field
-                required
-                invalid={!!errors.file}
-                errorText={errors.file?.message}
-                label="PDF File"
-              >
-                <Input
-                  id="file"
-                  type="file"
-                  accept=".pdf"
-                  onChange={handleFileChange}
-                />
-                <Text fontSize="sm" color="gray.500" mt={1}>
-                  Maximum file size: 10 MB
-                </Text>
-                {selectedFile && (
-                  <Text fontSize="sm" color="gray.600" mt={1}>
-                    Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-                  </Text>
-                )}
-              </Field>
-            </VStack>
-          </DialogBody>
-
-          <DialogFooter gap={2}>
-            <DialogActionTrigger asChild>
-              <Button
-                variant="subtle"
-                colorPalette="gray"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-            </DialogActionTrigger>
+        <DialogHeader>
+          <DialogTitle>Upload PDF Documents</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <Text mb={4}>
+            Drag and drop PDF files to upload them to the spiritual chatbot. Files will be validated for integrity and corruption before processing. All files will be added to the upload queue, including invalid files with error status.
+          </Text>
+          <UploadBox
+            onUpload={handleFilesUpload}
+            maxSize_Bytes={10 * 1024 * 1024} // 10MB
+            fileTypes={['.pdf']}
+            isUploading={false}
+          />
+          <Text fontSize="sm" color="gray.600" mt={3}>
+            • Maximum file size: 10 MB per file
+            • Only PDF files are supported
+            • Files are checked for corruption and integrity
+            • Files will use their filename as the title
+            • Invalid or corrupted files will show error status in the upload queue
+            • All upload progress and errors are shown in the global queue
+          </Text>
+        </DialogBody>
+        <DialogFooter gap={2}>
+          <DialogActionTrigger asChild>
             <Button
-              variant="solid"
-              type="submit"
-              disabled={!isValid}
-              loading={isSubmitting}
+              variant="subtle"
+              colorPalette="gray"
             >
-              Upload
+              Close
             </Button>
-          </DialogFooter>
-        </form>
+          </DialogActionTrigger>
+        </DialogFooter>
       </DialogContent>
     </DialogRoot>
   )

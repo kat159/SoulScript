@@ -19,6 +19,7 @@ from app.models import (
     PDFDocumentsPublic,
 )
 from app.services.pdf_service import pdf_service
+from app.utils import validate_pdf_integrity
 
 router = APIRouter()
 
@@ -66,6 +67,11 @@ def create_pdf_document(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
 
+    # Validate PDF file integrity - check if file can be opened and read
+    error_message = validate_pdf_integrity(file_content)
+    if error_message:
+        raise HTTPException(status_code=400, detail=error_message)
+
     # Save file to storage
     try:
         file_path = pdf_service.save_pdf_file(file_content, file.filename)
@@ -89,8 +95,7 @@ def create_pdf_document(
     db.refresh(pdf_document)
 
     # Process PDF in background
-    background_tasks.add_task(pdf_service.process_pdf, pdf_document, db)
-
+    
     return PDFDocumentPublic.from_orm(pdf_document)
 
 

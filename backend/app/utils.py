@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import emails  # type: ignore
 import jwt
@@ -121,3 +121,73 @@ def verify_password_reset_token(token: str) -> str | None:
         return str(decoded_token["sub"])
     except InvalidTokenError:
         return None
+
+
+def validate_pdf_integrity(file_content: bytes) -> Optional[str]:
+    """
+    Validate PDF file integrity - check if file can be opened and read
+    
+    Args:
+        file_content: The PDF file content as bytes
+        
+    Returns:
+        None if PDF is valid, error message string if invalid
+    """
+    try:
+        import PyPDF2
+        import io
+        
+        # Create a BytesIO object from the file content
+        pdf_stream = io.BytesIO(file_content)
+        
+        # Try to read the PDF using PyPDF2
+        pdf_reader = PyPDF2.PdfReader(pdf_stream)
+        
+        # Check if PDF has pages
+        if len(pdf_reader.pages) == 0:
+            return "PDF file appears to be empty or corrupted (no pages found)."
+        
+        # Try to read text from first page to ensure file is not corrupted
+        try:
+            first_page = pdf_reader.pages[0]
+            # Attempt to extract text (this will fail if PDF is corrupted)
+            _ = first_page.extract_text()
+        except Exception as page_error:
+            return f"PDF file appears to be corrupted or cannot be read: {str(page_error)}"
+            
+        # Reset stream for further use
+        pdf_stream.seek(0)
+        
+        return None  # PDF is valid
+        
+    except ImportError:
+        # Fallback to PyPDFLoader if PyPDF2 is not available
+        try:
+            import tempfile
+            import os
+            from langchain_community.document_loaders import PyPDFLoader
+            
+            # Create a temporary file to test PDF loading
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_file.write(file_content)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Try to load the PDF using PyPDFLoader
+                loader = PyPDFLoader(temp_file_path)
+                docs = loader.load()
+                
+                if not docs or len(docs) == 0:
+                    return "PDF file appears to be empty or corrupted (no content found)."
+                    
+                return None  # PDF is valid
+                    
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    
+        except Exception as loader_error:
+            return f"PDF file appears to be corrupted or cannot be read: {str(loader_error)}"
+    except Exception as pdf_error:
+        return f"PDF file appears to be corrupted or cannot be read: {str(pdf_error)}"

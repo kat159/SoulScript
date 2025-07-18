@@ -3,6 +3,7 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router"
 
 import Navbar from "@/components/Common/Navbar"
 import Sidebar from "@/components/Common/Sidebar"
+import UploadStatusIndicator from "@/components/Common/UploadStatusIndicator"
 import { isLoggedIn } from "@/hooks/useAuth"
 
 export const Route = createFileRoute("/_layout")({
@@ -26,6 +27,7 @@ function Layout() {
           <Outlet />
         </Flex>
       </Flex>
+      <UploadStatusIndicator />
     </Flex>
   )
 }
