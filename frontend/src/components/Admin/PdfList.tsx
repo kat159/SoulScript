@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   Box,
-  Heading,
   HStack,
   Text,
   VStack,
@@ -22,10 +21,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import useCustomToast from "@/hooks/useCustomToast"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import React from "react"
 import { OpenAPI } from '@/client/core/OpenAPI';
 import { request } from '@/client/core/request';
+import InlineEditPdf from './InlineEditPdf'
 
 interface PDFDocument {
   id: string
@@ -121,6 +121,7 @@ const PdfList = () => {
   const [confirmTitle, setConfirmTitle] = useState("")
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteStep, setDeleteStep] = useState("")
+  const [pdfs, setPdfs] = useState<PDFDocument[]>([])
 
   // Fetch PDF documents with auto-refresh for processing status
   const { data: pdfsResponse, isLoading, error, refetch } = useQuery<PDFDocumentsResponse>({
@@ -138,6 +139,21 @@ const PdfList = () => {
     },
     refetchIntervalInBackground: true,
   })
+
+  // Update local state when query data changes
+  useEffect(() => {
+    if (pdfsResponse && 'data' in pdfsResponse && Array.isArray(pdfsResponse.data)) {
+      setPdfs(pdfsResponse.data)
+    }
+  }, [pdfsResponse])
+
+  const handlePdfUpdate = (updatedPdf: PDFDocument) => {
+    setPdfs(prevPdfs => 
+      prevPdfs.map(pdf => 
+        pdf.id === updatedPdf.id ? updatedPdf : pdf
+      )
+    )
+  }
 
   const handleViewPdf = async (pdf: PDFDocument) => {
     try {
@@ -240,18 +256,13 @@ const PdfList = () => {
     <Box>
       
       <VStack gap={4} align="stretch">
-        {pdfsResponse && 'data' in pdfsResponse && Array.isArray(pdfsResponse.data) && pdfsResponse.data.map((pdf: PDFDocument) => (
+        {pdfs.map((pdf: PDFDocument) => (
           <Box key={pdf.id} border="1px solid" borderColor="gray.200" borderRadius="md" p={4}>
-            <HStack justify="space-between" mb={3}>
-              <VStack align="start" gap={1}>
-                <Heading size="sm">{pdf.title}</Heading>
-                {pdf.description && (
-                  <Text fontSize="sm" color="gray.600">
-                    {pdf.description}
-                  </Text>
-                )}
-              </VStack>
-              <HStack gap={2}>
+            <HStack justify="space-between" mb={3} align="start">
+              <Box flex={1}>
+                <InlineEditPdf pdf={pdf} onUpdate={handlePdfUpdate} />
+              </Box>
+              <HStack gap={2} flexShrink={0}>
                 {getStatusBadge(pdf.processing_status, pdf.is_processed)}
                 <IconButton
                   size="sm"
@@ -281,7 +292,7 @@ const PdfList = () => {
           </Box>
         ))}
         
-        {(!pdfsResponse || !('data' in pdfsResponse) || pdfsResponse.data.length === 0) && (
+        {pdfs.length === 0 && (
           <Box border="1px solid" borderColor="gray.200" borderRadius="md" p={4}>
             <Text textAlign="center" color="gray.500">
               No PDF documents uploaded yet.
