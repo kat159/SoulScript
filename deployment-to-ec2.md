@@ -155,9 +155,9 @@ openssl rand -base64 32
 ```
 
 **Optional Changes:**
-- `FIRST_SUPERUSER`: Change from `admin@soulscript.com` to your preferred admin email
+- `FIRST_SUPERUSER`: Change from `admin@denistek.com` to your preferred admin email
 - `FIRST_SUPERUSER_PASSWORD`: Change from `adminPassword` to your preferred admin password
-- `EMAILS_FROM_EMAIL`: Change from `admin@soulscript.com` to your preferred email
+- `EMAILS_FROM_EMAIL`: Change from `admin@denistek.com` to your preferred email
 
 
 **Important**: Replace `your-ec2-public-ip` with your actual EC2 public IP address in all the above variables.
@@ -174,7 +174,7 @@ docker-compose ps
 
 ### 4.1 Frontend Access
 - **URL**: `http://your-ec2-public-ip:80`
-- **Default Admin**: `admin@soulscript.com` / `adminPassword`
+- **Default Admin**: `admin@denistek.com` / `adminPassword`
 
 ### 4.2 Backend API
 - **Health Check**: `http://your-ec2-public-ip:8000/api/v1/utils/health-check/`
