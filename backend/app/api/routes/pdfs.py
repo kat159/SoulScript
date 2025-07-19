@@ -1,5 +1,7 @@
 import uuid
-from typing import List
+import re
+import logging
+from typing import List, Optional
 from fastapi import (
     APIRouter,
     Depends,
@@ -24,6 +26,93 @@ from app.utils import validate_pdf_integrity
 from app.util.redis_client import RedisSlot
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def generate_default_title(filename: str, max_length: int = 50) -> str:
+    """
+    Generate a default title from filename with the following steps:
+    1. Check for special characters
+    2. If special characters exist, use ChatGPT to clean them (keep meaningful ones)
+    3. If title is still too long, shorten to max_length characters
+    """
+    # Remove file extension first
+    title = filename.rsplit('.', 1)[0] if '.' in filename else filename
+    
+    # Step 1: Check if there are special characters
+    special_chars_pattern = r'[^\w\s\-]'  # Allow word chars, spaces, and hyphens
+    has_special_chars = bool(re.search(special_chars_pattern, title))
+    
+    # Step 2: If special characters exist, use ChatGPT to clean them
+    if has_special_chars:
+        title = _clean_title_with_chatgpt(title)
+    
+    # Step 3: If title is still too long, shorten it
+    if len(title) > max_length:
+        title = title[:max_length]
+    
+    return title if title.strip() else "Untitled Document"
+
+
+def _clean_title_with_chatgpt(title: str) -> str:
+    """
+    Use ChatGPT to clean special characters from title, keeping meaningful ones.
+    """
+    try:
+        from app.services.chat_service import chat_service
+        
+        # Check if ChatGPT is available
+        if not chat_service.llm:
+            logger.warning("ChatGPT not available, falling back to basic cleaning")
+            return _basic_title_cleanup(title)
+        
+        prompt = f"""
+Clean this filename to make it a good document title. Follow these rules:
+1. Keep meaningful special characters when they add meaning (e.g., "$1 for everything!", "#1 Chinese Community", "30% discount")
+2. Remove meaningless special characters
+3. Change the title to be more readable and professional if necessary. e.g., "Hello_World" should become "Hello World"
+4. Don't add any extra words, just clean what's given
+5. Return only the cleaned title, no explanations
+
+Original filename: "{title}"
+
+Cleaned title:"""
+
+        # Create a simple message to ChatGPT
+        from langchain_core.messages import HumanMessage
+        messages = [HumanMessage(content=prompt)]
+        
+        response = chat_service.llm.invoke(messages)
+        cleaned_title = response.content.strip()
+        
+        # Fallback if response is empty or too different
+        if not cleaned_title or len(cleaned_title) < 3:
+            return _basic_title_cleanup(title)
+            
+        return cleaned_title
+        
+    except Exception as e:
+        logger.warning(f"Failed to clean title with ChatGPT: {e}")
+        return _basic_title_cleanup(title)
+
+
+def _basic_title_cleanup(title: str) -> str:
+    """
+    Basic title cleanup as fallback when ChatGPT is not available.
+    """
+    # Replace underscores and hyphens with spaces
+    # title = title.replace('_', ' ').replace('-', ' ')
+    
+    # Remove most special characters but keep some meaningful ones
+    title = re.sub(r'[^\w\s$%#&]', '', title)
+    
+    # Clean up multiple spaces
+    title = re.sub(r'\s+', ' ', title).strip()
+    
+    # Capitalize first letter of each word
+    title = title.title()
+    
+    return title
 
 
 @router.post("/", response_model=PDFDocumentPublic)
@@ -31,7 +120,7 @@ def create_pdf_document(
     *,
     db: SessionDep,
     current_user: CurrentUser,
-    title: str = Form(...),
+    title: Optional[str] = Form(None),
     description: str = Form(None),
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks,
@@ -80,6 +169,9 @@ def create_pdf_document(
         file_path = pdf_service.save_pdf_file(file_content, file.filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
+
+    # Generate title from filename (ignore frontend title parameter)
+    title = generate_default_title(file.filename)
 
     # Create PDF document record
     pdf_document = PDFDocument(
